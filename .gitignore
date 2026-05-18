@@ -1,0 +1,16 @@
+# Build artifacts
+bansakako
+*.o
+
+# Nix
+result
+result-*
+
+# Editor
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
