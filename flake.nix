@@ -1,5 +1,5 @@
 {
-  description = "Bansakako - a simple Pomodoro TUI";
+  description = "pmdro";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
