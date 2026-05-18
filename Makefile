@@ -1,7 +1,7 @@
 CC      = cc
 CFLAGS  = -std=c23 -Wall -Wextra -Wpedantic -Ivendor -DTB_IMPL
 LDFLAGS = 
-TARGET  = bansakako
+TARGET  = pmdro
 SRC     = src/main.c
 
 .PHONY: all clean

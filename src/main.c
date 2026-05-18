@@ -23,6 +23,14 @@ static const char *mode_label(Mode m) {
     return m == TYPE_WORK ? "WORK" : m == TYPE_SHORT ? "SHORT BREAK" : "LONG BREAK";
 }
 
+static const char *mode_label_short(Mode m) {
+    return m == TYPE_WORK ? "WORK" : m == TYPE_SHORT ? "SB" : "LB";
+}
+
+static bool is_compact(void) {
+    return tb_width() < 60 || tb_height() < 12;
+}
+
 static int mode_dur(Mode m) {
     return m == TYPE_WORK ? WORK_DUR : m == TYPE_SHORT ? SHORT_BREAK : LONG_BREAK;
 }
@@ -140,44 +148,64 @@ static void draw_line(int row, uintattr_t fg, uintattr_t bg) {
     for (int i = s; i < e; i++) tb_set_cell(i, row, '-', fg, bg);
 }
 
-static void render(const Timer *t) {
-    tb_clear();
-
+static void draw_compact(const Timer *t) {
     int h = tb_height();
-    int mid = h / 2;
     uintattr_t fg = mode_fg(t->mode);
     uintattr_t bg = TB_DEFAULT;
 
-    draw_line(mid - 2, fg, bg);
-    draw_timer(mid, t->remaining, fg, bg);
-    draw_line(mid + 2, fg, bg);
+    draw_timer(h / 2 - 1, t->remaining, fg | TB_BOLD, bg);
+    print_centered(h / 2, mode_label_short(t->mode), fg, bg);
+
+    if (t->auto_cycle)
+        print_centered(h / 2 + 1, "auto", TB_DEFAULT, bg);
+    else
+        print_centered(h / 2 + 1, "manual", TB_DEFAULT, bg);
+
+    if (t->show_hint)
+        print_centered(h / 2 + 2, " sp r t a n h q", TB_DEFAULT, bg);
+}
+
+static void render(const Timer *t) {
+    tb_clear();
+
+    uintattr_t fg = mode_fg(t->mode);
+    uintattr_t bg = TB_DEFAULT;
+
+    if (is_compact()) {
+        draw_compact(t);
+    } else {
+        int h = tb_height();
+        int mid = h / 2;
+
+        draw_line(mid - 2, fg, bg);
+        draw_timer(mid, t->remaining, fg, bg);
+        draw_line(mid + 2, fg, bg);
+
+        print_centered(h - 4, mode_label(t->mode), fg | TB_BOLD, bg);
+
+        if (t->auto_cycle)
+            print_centered(h - 3, "auto", TB_DEFAULT, bg);
+        else
+            print_centered(h - 3, "manual", TB_DEFAULT, bg);
+
+        if (t->show_hint) {
+            const char *hint = "space=pause  r=reset  t=mode  a=auto  n=";
+            const char *n_label = t->notify_enabled ? "notify" : "notify";
+            const char *hint_end = "  h=hint  q=quit";
+            int n_len = (int)strlen(n_label);
+            int hint_len = (int)strlen(hint);
+            int end_len = (int)strlen(hint_end);
+            int total = hint_len + n_len + end_len;
+            int col = (tb_width() - total) / 2;
+            if (col < 0) col = 0;
+            tb_print(col, h - 2, TB_DEFAULT, bg, hint);
+            tb_print(col + hint_len, h - 2, t->notify_enabled ? TB_GREEN : TB_DEFAULT, bg, n_label);
+            tb_print(col + hint_len + n_len, h - 2, TB_DEFAULT, bg, hint_end);
+        }
+    }
 
     if (t->paused)
-        print_centered(mid + 4, "[ PAUSED ]", TB_YELLOW | TB_BOLD, bg);
-
-    print_centered(h - 4, mode_label(t->mode), fg | TB_BOLD, bg);
-
-    char status[64];
-    if (t->auto_cycle)
-        snprintf(status, sizeof status, "auto");
-    else
-        snprintf(status, sizeof status, "manual");
-    print_centered(h - 3, status, TB_DEFAULT, bg);
-
-    if (t->show_hint) {
-        const char *hint = "space=pause  r=reset  t=mode  a=auto  n=";
-        const char *n_label = t->notify_enabled ? "notify" : "notify";
-        const char *hint_end = "  h=hint  q=quit";
-        int n_len = (int)strlen(n_label);
-        int hint_len = (int)strlen(hint);
-        int end_len = (int)strlen(hint_end);
-        int total = hint_len + n_len + end_len;
-        int col = (tb_width() - total) / 2;
-        if (col < 0) col = 0;
-        tb_print(col, h - 2, TB_DEFAULT, bg, hint);
-        tb_print(col + hint_len, h - 2, t->notify_enabled ? TB_GREEN : TB_DEFAULT, bg, n_label);
-        tb_print(col + hint_len + n_len, h - 2, TB_DEFAULT, bg, hint_end);
-    }
+        print_centered(tb_height() / 2, "[ PAUSED ]", TB_YELLOW | TB_BOLD, bg);
 
     tb_present();
 }
