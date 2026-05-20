@@ -292,6 +292,22 @@ int main(int argc, char **argv) {
     char task_arg[256] = "";
 
     for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+            printf("pmdro - simple TUI pomodoro timer\n\n");
+            printf("usage: pmdro [-t [task]]\n\n");
+            printf("  -t [task]   set task description (with arg: use directly, without: prompt)\n");
+            printf("  -h, --help  show this help\n\n");
+            printf("keybindings:\n");
+            printf("  space       pause/resume\n");
+            printf("  r           reset timer\n");
+            printf("  t           advance mode (disables auto-cycle)\n");
+            printf("  e           edit task description\n");
+            printf("  a           toggle auto-cycle\n");
+            printf("  n           toggle notifications\n");
+            printf("  h           toggle keybinding hints\n");
+            printf("  q           quit\n");
+            return EXIT_SUCCESS;
+        }
         if (strcmp(argv[i], "-t") == 0) {
             if (i + 1 < argc && argv[i + 1][0] != '-') {
                 strncpy(task_arg, argv[i + 1], sizeof(task_arg) - 1);
