@@ -15,13 +15,13 @@
     {
       packages = forAllSystems ({ pkgs }: {
         default = pkgs.stdenv.mkDerivation {
-          name = "bansakako";
+          name = "pmdro";
           src = ./.;
           nativeBuildInputs = [ pkgs.gnumake pkgs.gcc ];
           buildPhase = "make";
           installPhase = ''
             mkdir -p $out/bin
-            cp bansakako $out/bin/
+            cp pmdro $out/bin/
           '';
         };
       });

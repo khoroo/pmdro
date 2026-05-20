@@ -40,7 +40,7 @@ static uintattr_t mode_fg(Mode m) {
 }
 
 static void send_notification(const char *title, const char *msg) {
-    printf("\033]99;i=bansakako:n=%s;%s\007", title, msg);
+    printf("\033]99;i=pmdro:n=%s;%s\007", title, msg);
     fflush(stdout);
 }
 
