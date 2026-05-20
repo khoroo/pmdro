@@ -8,23 +8,23 @@
 #include <string.h>
 #include <time.h>
 
-#define WORK_DUR      (25 * 60)
+#define TASK_DUR      (25 * 60)
 #define SHORT_BREAK   (5 * 60)
 #define LONG_BREAK    (15 * 60)
 #define CYCLES_BEFORE_LONG 4
 
-typedef enum { TYPE_WORK, TYPE_SHORT, TYPE_LONG } Mode;
+typedef enum { TYPE_TASK, TYPE_SHORT, TYPE_LONG } Mode;
 
 static volatile sig_atomic_t running = 1;
 
 static void on_sigint(int sig) { (void)sig; running = 0; }
 
 static const char *mode_label(Mode m) {
-    return m == TYPE_WORK ? "WORK" : m == TYPE_SHORT ? "SHORT BREAK" : "LONG BREAK";
+    return m == TYPE_TASK ? "TASK" : m == TYPE_SHORT ? "SHORT BREAK" : "LONG BREAK";
 }
 
 static const char *mode_label_short(Mode m) {
-    return m == TYPE_WORK ? "WORK" : m == TYPE_SHORT ? "SB" : "LB";
+    return m == TYPE_TASK ? "TASK" : m == TYPE_SHORT ? "SB" : "LB";
 }
 
 static bool is_compact(void) {
@@ -32,11 +32,11 @@ static bool is_compact(void) {
 }
 
 static int mode_dur(Mode m) {
-    return m == TYPE_WORK ? WORK_DUR : m == TYPE_SHORT ? SHORT_BREAK : LONG_BREAK;
+    return m == TYPE_TASK ? TASK_DUR : m == TYPE_SHORT ? SHORT_BREAK : LONG_BREAK;
 }
 
 static uintattr_t mode_fg(Mode m) {
-    return m == TYPE_WORK ? TB_RED : m == TYPE_SHORT ? TB_GREEN : TB_CYAN;
+    return m == TYPE_TASK ? TB_RED : m == TYPE_SHORT ? TB_GREEN : TB_CYAN;
 }
 
 static void send_notification(const char *title, const char *msg) {
@@ -55,12 +55,15 @@ typedef struct {
     bool notified;
     int cycles;
     struct timespec last_tick;
+    char task[256];
+    char task_edit[256];
+    bool editing_task;
 } Timer;
 
-static void timer_init(Timer *t) {
-    t->mode = TYPE_WORK;
-    t->duration = WORK_DUR;
-    t->remaining = WORK_DUR;
+static void timer_init(Timer *t, const char *task) {
+    t->mode = TYPE_TASK;
+    t->duration = TASK_DUR;
+    t->remaining = TASK_DUR;
     t->paused = false;
     t->auto_cycle = true;
     t->show_hint = false;
@@ -68,6 +71,13 @@ static void timer_init(Timer *t) {
     t->notified = false;
     t->cycles = 0;
     clock_gettime(CLOCK_MONOTONIC, &t->last_tick);
+    t->task[0] = '\0';
+    if (task) {
+        strncpy(t->task, task, sizeof(t->task) - 1);
+        t->task[sizeof(t->task) - 1] = '\0';
+    }
+    t->task_edit[0] = '\0';
+    t->editing_task = false;
 }
 
 static void timer_reset(Timer *t) {
@@ -79,7 +89,7 @@ static void timer_reset(Timer *t) {
 
 static void timer_next(Timer *t) {
     if (t->auto_cycle) {
-        if (t->mode == TYPE_WORK) {
+        if (t->mode == TYPE_TASK) {
             t->cycles++;
             if (t->cycles >= CYCLES_BEFORE_LONG) {
                 t->mode = TYPE_LONG;
@@ -88,7 +98,7 @@ static void timer_next(Timer *t) {
                 t->mode = TYPE_SHORT;
             }
         } else {
-            t->mode = TYPE_WORK;
+            t->mode = TYPE_TASK;
         }
     } else {
         t->mode = (t->mode + 1) % 3;
@@ -152,17 +162,26 @@ static void draw_compact(const Timer *t) {
     int h = tb_height();
     uintattr_t fg = mode_fg(t->mode);
     uintattr_t bg = TB_DEFAULT;
+    int row = h / 2;
 
-    draw_timer(h / 2 - 1, t->remaining, fg | TB_BOLD, bg);
-    print_centered(h / 2, mode_label_short(t->mode), fg, bg);
+    draw_timer(row - 1, t->remaining, fg | TB_BOLD, bg);
+
+    if (t->task[0] && !t->editing_task) {
+        print_centered(row, t->task, TB_DEFAULT, bg);
+        row++;
+    }
+
+    print_centered(row, mode_label_short(t->mode), fg, bg);
+    row++;
 
     if (t->auto_cycle)
-        print_centered(h / 2 + 1, "auto", TB_DEFAULT, bg);
+        print_centered(row, "auto", TB_DEFAULT, bg);
     else
-        print_centered(h / 2 + 1, "manual", TB_DEFAULT, bg);
+        print_centered(row, "manual", TB_DEFAULT, bg);
+    row++;
 
     if (t->show_hint)
-        print_centered(h / 2 + 2, " sp r t a n h q", TB_DEFAULT, bg);
+        print_centered(row, " sp r t a n h q e", TB_DEFAULT, bg);
 }
 
 static void render(const Timer *t) {
@@ -179,6 +198,10 @@ static void render(const Timer *t) {
 
         draw_line(mid - 2, fg, bg);
         draw_timer(mid, t->remaining, fg, bg);
+
+        if (t->task[0] && !t->editing_task)
+            print_centered(mid + 1, t->task, TB_DEFAULT, bg);
+
         draw_line(mid + 2, fg, bg);
 
         print_centered(h - 4, mode_label(t->mode), fg | TB_BOLD, bg);
@@ -189,7 +212,7 @@ static void render(const Timer *t) {
             print_centered(h - 3, "manual", TB_DEFAULT, bg);
 
         if (t->show_hint) {
-            const char *hint = "space=pause  r=reset  t=mode  a=auto  n=";
+            const char *hint = "space=pause  r=reset  t=mode  e=task  a=auto  n=";
             const char *n_label = t->notify_enabled ? "notify" : "notify";
             const char *hint_end = "  h=hint  q=quit";
             int n_len = (int)strlen(n_label);
@@ -207,6 +230,14 @@ static void render(const Timer *t) {
     if (t->paused)
         print_centered(tb_height() / 2, "[ PAUSED ]", TB_YELLOW | TB_BOLD, bg);
 
+    if (t->editing_task) {
+        char prompt[sizeof(t->task_edit) + 10];
+        int n = snprintf(prompt, sizeof(prompt), " Task: %s", t->task_edit);
+        if (n >= 0 && (size_t)n < sizeof(prompt) - 1)
+            prompt[n] = '_', prompt[n + 1] = '\0';
+        tb_print(0, tb_height() - 1, TB_DEFAULT, TB_DEFAULT, prompt);
+    }
+
     tb_present();
 }
 
@@ -222,6 +253,10 @@ static void handle_key(Timer *t, struct tb_event *ev) {
     } else if (ch == 't' || ch == 'T') {
         t->auto_cycle = false;
         timer_next(t);
+    } else if (ch == 'e' || ch == 'E') {
+        strncpy(t->task_edit, t->task, sizeof(t->task_edit) - 1);
+        t->task_edit[sizeof(t->task_edit) - 1] = '\0';
+        t->editing_task = true;
     } else if (ch == 'a' || ch == 'A') {
         t->auto_cycle = !t->auto_cycle;
     } else if (ch == 'h' || ch == 'H') {
@@ -234,7 +269,44 @@ static void handle_key(Timer *t, struct tb_event *ev) {
     }
 }
 
-int main(void) {
+static void handle_edit_key(Timer *t, struct tb_event *ev) {
+    uint32_t ch = ev->ch;
+    uint16_t key = ev->key;
+    size_t pos = strlen(t->task_edit);
+
+    if (key == TB_KEY_ENTER || ch == '\n' || ch == '\r') {
+        strncpy(t->task, t->task_edit, sizeof(t->task) - 1);
+        t->task[sizeof(t->task) - 1] = '\0';
+        t->editing_task = false;
+    } else if (key == TB_KEY_ESC) {
+        t->editing_task = false;
+    } else if (key == TB_KEY_BACKSPACE2 || ch == '\b' || ch == 127) {
+        if (pos > 0) t->task_edit[pos - 1] = '\0';
+    } else if (ch >= 32 && ch <= 126 && pos < sizeof(t->task_edit) - 1) {
+        t->task_edit[pos] = (char)ch;
+        t->task_edit[pos + 1] = '\0';
+    }
+}
+
+int main(int argc, char **argv) {
+    char task_arg[256] = "";
+
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-t") == 0) {
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                strncpy(task_arg, argv[i + 1], sizeof(task_arg) - 1);
+                task_arg[sizeof(task_arg) - 1] = '\0';
+                i++;
+            } else {
+                printf("Task? ");
+                fflush(stdout);
+                if (!fgets(task_arg, (int)sizeof(task_arg), stdin))
+                    task_arg[0] = '\0';
+                task_arg[strcspn(task_arg, "\n")] = '\0';
+            }
+        }
+    }
+
     struct sigaction sa = { .sa_handler = on_sigint };
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
@@ -249,7 +321,7 @@ int main(void) {
     tb_hide_cursor();
 
     Timer timer;
-    timer_init(&timer);
+    timer_init(&timer, task_arg[0] ? task_arg : nullptr);
 
     while (running) {
         render(&timer);
@@ -257,8 +329,12 @@ int main(void) {
 
         struct tb_event ev;
         int ret = tb_peek_event(&ev, 200);
-        if (ret == TB_OK && ev.type == TB_EVENT_KEY)
-            handle_key(&timer, &ev);
+        if (ret == TB_OK && ev.type == TB_EVENT_KEY) {
+            if (timer.editing_task)
+                handle_edit_key(&timer, &ev);
+            else
+                handle_key(&timer, &ev);
+        }
     }
 
     tb_shutdown();
